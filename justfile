@@ -2,18 +2,22 @@
 
 set shell := ["pwsh", "-NoProfile", "-Command"]
 
-# Build everything and produce the single exe
+# Build everything: frontend + Rust binary
 build:
-    pnpm --filter @bascan/frontend build; cargo build --release --manifest-path packages/backend-rs/Cargo.toml
+    pnpm --prefix packages/frontend build; cargo build --release --manifest-path packages/backend-rs/Cargo.toml
 
-# Run the production binary (build first if needed)
+# Run the production binary
 run:
     packages/backend-rs/target/release/bascan-backend.exe
 
-# Dev mode: Bun backend + Vite frontend (with proxy)
+# Dev mode: Rust backend + Vite frontend (with proxy)
 dev:
-    Start-Process -NoNewWindow -FilePath "bun" -ArgumentList "run","src/index.ts" -WorkingDirectory "packages/backend"; pnpm --filter @bascan/frontend dev
+    Start-Process -NoNewWindow -FilePath "cargo" -ArgumentList "run","--manifest-path","packages/backend-rs/Cargo.toml"; pnpm --prefix packages/frontend dev
 
-# Install all dependencies
+# Install frontend dependencies
 install:
-    pnpm install
+    pnpm --prefix packages/frontend install
+
+# Type-check frontend
+check:
+    pnpm --prefix packages/frontend check

@@ -2,8 +2,8 @@
   "name": "bascan",
   "private": true,
   "scripts": {
-    "dev": "pnpm -r --parallel dev",
-    "dev:backend": "pnpm --filter @bascan/backend dev",
-    "dev:frontend": "pnpm --filter @bascan/frontend dev"
+    "dev:frontend": "pnpm --prefix packages/frontend dev",
+    "build:frontend": "pnpm --prefix packages/frontend build",
+    "check": "pnpm --prefix packages/frontend check"
   }
 }
