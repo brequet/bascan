@@ -4,4 +4,4 @@ build/
 target/
 dist/
 *.exe
-berserk/
+library/

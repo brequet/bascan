@@ -1,5 +1,5 @@
 use axum::{
-    extract::Path,
+    extract::{Path, State},
     http::{header, StatusCode, Uri},
     response::{Html, IntoResponse, Json, Response},
     routing::get,
@@ -8,14 +8,18 @@ use axum::{
 use include_dir::{include_dir, Dir};
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::fs;
 use tower_http::cors::CorsLayer;
 
-/// Library root: contains series folders, each containing volume folders
-const LIBRARY_ROOT: &str = r"C:\dev\projects\bascan\library";
-
 /// Embedded frontend build
 static FRONTEND: Dir = include_dir!("$CARGO_MANIFEST_DIR/../frontend/build");
+
+/// Shared application state
+#[derive(Clone)]
+struct AppState {
+    library_root: Arc<PathBuf>,
+}
 
 #[derive(Serialize)]
 struct Series {
@@ -75,7 +79,6 @@ fn natural_sort_key(s: &str) -> Vec<u64> {
     result
 }
 
-/// Count volume directories in a series folder
 async fn count_volumes_in(path: &std::path::Path) -> usize {
     let mut count = 0;
     if let Ok(mut entries) = fs::read_dir(path).await {
@@ -88,7 +91,6 @@ async fn count_volumes_in(path: &std::path::Path) -> usize {
     count
 }
 
-/// Get first image file in first volume of a series (for series cover)
 async fn series_cover(series_path: &std::path::Path, series_id: &str) -> String {
     if let Ok(mut entries) = fs::read_dir(series_path).await {
         let mut vol_dirs: Vec<String> = Vec::new();
@@ -119,16 +121,16 @@ async fn series_cover(series_path: &std::path::Path, series_id: &str) -> String 
     String::new()
 }
 
-// GET /api/series — list all series
-async fn list_series() -> Json<Vec<Series>> {
+async fn list_series(State(state): State<AppState>) -> Json<Vec<Series>> {
+    let root = &*state.library_root;
     let mut series = Vec::new();
-    let mut entries = fs::read_dir(LIBRARY_ROOT).await.unwrap();
+    let mut entries = fs::read_dir(root).await.unwrap();
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().to_string();
         if !entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) { continue; }
 
-        let path = PathBuf::from(LIBRARY_ROOT).join(&name);
+        let path = root.join(&name);
         let vol_count = count_volumes_in(&path).await;
         let cover = series_cover(&path, &name).await;
 
@@ -144,9 +146,8 @@ async fn list_series() -> Json<Vec<Series>> {
     Json(series)
 }
 
-// GET /api/series/:series_id/volumes — list volumes in a series
-async fn list_volumes(Path(series_id): Path<String>) -> Result<Json<Vec<Volume>>, StatusCode> {
-    let series_path = PathBuf::from(LIBRARY_ROOT).join(&series_id);
+async fn list_volumes(State(state): State<AppState>, Path(series_id): Path<String>) -> Result<Json<Vec<Volume>>, StatusCode> {
+    let series_path = state.library_root.join(&series_id);
     if !series_path.is_dir() { return Err(StatusCode::NOT_FOUND); }
 
     let mut volumes = Vec::new();
@@ -183,9 +184,8 @@ async fn list_volumes(Path(series_id): Path<String>) -> Result<Json<Vec<Volume>>
     Ok(Json(volumes))
 }
 
-// GET /api/series/:series_id/volumes/:volume_id/pages
-async fn list_pages(Path((series_id, volume_id)): Path<(String, String)>) -> Result<Json<Vec<Page>>, StatusCode> {
-    let folder = PathBuf::from(LIBRARY_ROOT).join(&series_id).join(&volume_id);
+async fn list_pages(State(state): State<AppState>, Path((series_id, volume_id)): Path<(String, String)>) -> Result<Json<Vec<Page>>, StatusCode> {
+    let folder = state.library_root.join(&series_id).join(&volume_id);
     if !folder.is_dir() { return Err(StatusCode::NOT_FOUND); }
 
     let mut files = Vec::new();
@@ -210,9 +210,8 @@ async fn list_pages(Path((series_id, volume_id)): Path<(String, String)>) -> Res
     Ok(Json(pages))
 }
 
-// Serve images: /images/:series/:volume/:file
-async fn serve_image(Path((series, volume, file)): Path<(String, String, String)>) -> impl IntoResponse {
-    let path = PathBuf::from(LIBRARY_ROOT).join(&series).join(&volume).join(&file);
+async fn serve_image(State(state): State<AppState>, Path((series, volume, file)): Path<(String, String, String)>) -> impl IntoResponse {
+    let path = state.library_root.join(&series).join(&volume).join(&file);
 
     match fs::read(&path).await {
         Ok(bytes) => (
@@ -227,7 +226,6 @@ async fn serve_image(Path((series, volume, file)): Path<(String, String, String)
     }
 }
 
-/// Serve embedded frontend files, with SPA fallback to index.html
 async fn serve_frontend(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     
@@ -258,17 +256,36 @@ async fn serve_frontend(uri: Uri) -> Response {
 
 #[tokio::main]
 async fn main() {
+    // Resolve library path: CLI arg > env var > ./library
+    let library_root = std::env::args().nth(1)
+        .or_else(|| std::env::var("BASCAN_LIBRARY").ok())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap().join("library"));
+
+    let library_root = library_root.canonicalize().unwrap_or_else(|_| {
+        eprintln!("Error: library path does not exist: {}", library_root.display());
+        eprintln!("Usage: bascan-backend [LIBRARY_PATH]");
+        eprintln!("  or set BASCAN_LIBRARY environment variable");
+        eprintln!("  or create a 'library/' folder in the current directory");
+        std::process::exit(1);
+    });
+
+    let state = AppState {
+        library_root: Arc::new(library_root.clone()),
+    };
+
     let app = Router::new()
         .route("/api/series", get(list_series))
         .route("/api/series/{series_id}/volumes", get(list_volumes))
         .route("/api/series/{series_id}/volumes/{volume_id}/pages", get(list_pages))
         .route("/images/{series}/{volume}/{file}", get(serve_image))
         .fallback(get(serve_frontend))
-        .layer(CorsLayer::permissive());
+        .layer(CorsLayer::permissive())
+        .with_state(state);
 
     let addr = "0.0.0.0:3001";
     println!("Bascan running on http://localhost:3001");
-    println!("Library: {}", LIBRARY_ROOT);
+    println!("Library: {}", library_root.display());
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

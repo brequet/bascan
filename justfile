@@ -2,17 +2,20 @@
 
 set shell := ["pwsh", "-NoProfile", "-Command"]
 
+# Default library path (override with: just run C:\path\to\library)
+library := "library"
+
 # Build everything: frontend + Rust binary
 build:
     pnpm --prefix packages/frontend build; cargo build --release --manifest-path packages/backend-rs/Cargo.toml
 
-# Run the production binary
-run:
-    packages/backend-rs/target/release/bascan-backend.exe
+# Run the production binary (optionally pass library path)
+run path=library:
+    packages/backend-rs/target/release/bascan-backend.exe {{path}}
 
 # Dev mode: Rust backend + Vite frontend (with proxy)
-dev:
-    Start-Process -NoNewWindow -FilePath "cargo" -ArgumentList "run","--manifest-path","packages/backend-rs/Cargo.toml"; pnpm --prefix packages/frontend dev
+dev path=library:
+    Start-Process -NoNewWindow -FilePath "cargo" -ArgumentList "run","--manifest-path","packages/backend-rs/Cargo.toml","--","{{path}}"; pnpm --prefix packages/frontend dev
 
 # Install frontend dependencies
 install:
