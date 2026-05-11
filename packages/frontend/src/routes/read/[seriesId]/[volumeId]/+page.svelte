@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto, replaceState } from "$app/navigation";
   import { fetchPages, fetchVolumes, imageUrl } from "$lib/api";
@@ -26,15 +25,21 @@
   let isFirstPage = $derived(currentIndex === 0);
   let isLastPage = $derived(currentIndex === pages.length - 1);
 
-  onMount(() => {
+  // Reactive to URL param changes — handles both initial load and client-side navigation
+  $effect(() => {
     const sid = $page.params?.seriesId;
     const vid = $page.params?.volumeId;
     if (sid && vid) {
-      seriesId = decodeURIComponent(sid);
-      volumeId = decodeURIComponent(vid);
-      const urlPage = new URLSearchParams(window.location.search).get("p");
-      if (urlPage) currentIndex = Math.max(0, parseInt(urlPage, 10) - 1);
-      loadVolume();
+      const newSeriesId = decodeURIComponent(sid);
+      const newVolumeId = decodeURIComponent(vid);
+      if (newSeriesId !== seriesId || newVolumeId !== volumeId) {
+        seriesId = newSeriesId;
+        volumeId = newVolumeId;
+        currentIndex = 0;
+        const urlPage = new URLSearchParams(window.location.search).get("p");
+        if (urlPage) currentIndex = Math.max(0, parseInt(urlPage, 10) - 1);
+        loadVolume();
+      }
     }
   });
 
