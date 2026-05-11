@@ -2,9 +2,9 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto, replaceState } from "$app/navigation";
-  import { fetchPages, imageUrl } from "$lib/api";
+  import { fetchPages, fetchVolumes, imageUrl } from "$lib/api";
   import { getProgress, saveProgress } from "$lib/progress";
-  import type { Page } from "@bascan/shared";
+  import type { Page, Volume } from "@bascan/shared";
 
   let volumeId: string = $state("");
   let pages: Page[] = $state([]);
@@ -16,16 +16,19 @@
   let showControls = $state(true);
   let controlsTimeout: ReturnType<typeof setTimeout> | null = null;
   let scrollContainer: HTMLDivElement | undefined = $state(undefined);
+  let prevVolume: Volume | null = $state(null);
+  let nextVolume: Volume | null = $state(null);
 
   // Derived
   let currentPage = $derived(pages[currentIndex]);
   let progress = $derived(pages.length ? Math.round(((currentIndex + 1) / pages.length) * 100) : 0);
+  let isFirstPage = $derived(currentIndex === 0);
+  let isLastPage = $derived(currentIndex === pages.length - 1);
 
   onMount(() => {
     const id = $page.params?.id;
     if (id) {
       volumeId = decodeURIComponent(id);
-      // Read initial page from URL search params
       const urlPage = new URLSearchParams(window.location.search).get("p");
       if (urlPage) currentIndex = Math.max(0, parseInt(urlPage, 10) - 1);
       loadVolume();
@@ -34,8 +37,14 @@
 
   async function loadVolume() {
     loading = true;
-    pages = await fetchPages(volumeId);
-    // Restore from URL param first, then localStorage
+    const [pagesData, volumes] = await Promise.all([fetchPages(volumeId), fetchVolumes()]);
+    pages = pagesData;
+
+    // Find adjacent volumes
+    const idx = volumes.findIndex((v: Volume) => v.id === volumeId);
+    prevVolume = idx > 0 ? volumes[idx - 1] : null;
+    nextVolume = idx < volumes.length - 1 ? volumes[idx + 1] : null;
+
     if (currentIndex === 0) {
       const saved = getProgress(volumeId);
       if (saved) currentIndex = Math.min(saved.pageIndex, pages.length - 1);
@@ -44,6 +53,10 @@
     }
     updateUrl();
     loading = false;
+  }
+
+  function goToVolume(vol: Volume) {
+    goto(`/read/${encodeURIComponent(vol.id)}`);
   }
 
   function updateUrl() {
@@ -171,6 +184,11 @@
             loading={Math.abs(i - currentIndex) < 5 ? "eager" : "lazy"}
           />
         {/each}
+        {#if nextVolume}
+          <button class="chapter-nav-btn" onclick={() => goToVolume(nextVolume!)}>
+            Next: {nextVolume.title} →
+          </button>
+        {/if}
       </div>
     {:else}
       <div class="page-view" style="--zoom: {zoom}">
@@ -186,6 +204,17 @@
             alt="Page {currentIndex + 1}"
           />
         {/if}
+
+        {#if isLastPage && nextVolume}
+          <button class="chapter-overlay-btn next" onclick={() => goToVolume(nextVolume!)}>
+            Next: {nextVolume.title} →
+          </button>
+        {/if}
+        {#if isFirstPage && prevVolume}
+          <button class="chapter-overlay-btn prev" onclick={() => goToVolume(prevVolume!)}>
+            ← Prev: {prevVolume.title}
+          </button>
+        {/if}
       </div>
     {/if}
 
@@ -195,7 +224,10 @@
         <div class="progress-fill" style="width: {progress}%"></div>
       </div>
       <div class="controls">
-        <button onclick={prev} disabled={currentIndex === 0}>←</button>
+        {#if prevVolume}
+          <button class="chapter-btn" onclick={() => goToVolume(prevVolume!)}>⏮</button>
+        {/if}
+        <button onclick={prev} disabled={isFirstPage}>←</button>
         <button onclick={toggleMode}>
           {mode === "scroll" ? "📖 Page" : "📜 Scroll"}
         </button>
@@ -203,7 +235,10 @@
         <span class="zoom-label">{Math.round(zoom * 100)}%</span>
         <button onclick={() => { zoom = Math.min(zoom + 0.25, 3); }}>+</button>
         <button onclick={toggleFullscreen}>{isFullscreen ? "⊡" : "⊞"} Full</button>
-        <button onclick={next} disabled={currentIndex === pages.length - 1}>→</button>
+        <button onclick={next} disabled={isLastPage}>→</button>
+        {#if nextVolume}
+          <button class="chapter-btn" onclick={() => goToVolume(nextVolume!)}>⏭</button>
+        {/if}
       </div>
     </footer>
   {/if}
@@ -379,5 +414,44 @@
     color: var(--text-muted);
     min-width: 3em;
     text-align: center;
+  }
+
+  /* Chapter navigation */
+  .chapter-nav-btn {
+    display: block;
+    margin: 2rem auto;
+    padding: 1rem 2rem;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .chapter-nav-btn:hover { opacity: 0.85; }
+
+  .chapter-overlay-btn {
+    position: absolute;
+    z-index: 20;
+    padding: 0.75rem 1.5rem;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .chapter-overlay-btn:hover { opacity: 0.85; }
+  .chapter-overlay-btn.next { right: 2rem; bottom: 5rem; }
+  .chapter-overlay-btn.prev { left: 2rem; bottom: 5rem; }
+
+  .chapter-btn {
+    background: rgba(255,255,255,0.15) !important;
   }
 </style>
