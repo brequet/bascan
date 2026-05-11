@@ -3,7 +3,7 @@
   import { page } from "$app/stores";
   import { fetchVolumes, imageUrl } from "$lib/api";
   import { getProgress } from "$lib/progress";
-  import type { Volume } from "@bascan/shared";
+  import type { Volume } from "$lib/types";
 
   let seriesId: string = $state("");
   let volumes: Volume[] = $state([]);

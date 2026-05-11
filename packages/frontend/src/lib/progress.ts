@@ -1,4 +1,4 @@
-import type { ReadingProgress } from "@bascan/shared";
+import type { ReadingProgress } from "$lib/types";
 
 const STORAGE_KEY = "bascan_progress";
 

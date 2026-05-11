@@ -3,7 +3,7 @@
   import { goto, replaceState } from "$app/navigation";
   import { fetchPages, fetchVolumes, imageUrl } from "$lib/api";
   import { getProgress, saveProgress } from "$lib/progress";
-  import type { Page, Volume } from "@bascan/shared";
+  import type { Page, Volume } from "$lib/types";
 
   let seriesId: string = $state("");
   let volumeId: string = $state("");

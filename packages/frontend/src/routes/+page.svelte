@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fetchSeries, imageUrl } from "$lib/api";
-  import type { Series } from "@bascan/shared";
+  import type { Series } from "$lib/types";
 
   let series: Series[] = $state([]);
   let loading = $state(true);

@@ -1,4 +1,4 @@
-import type { Series, Volume, Page } from "@bascan/shared";
+import type { Series, Volume, Page } from "$lib/types";
 
 export async function fetchSeries(): Promise<Series[]> {
   const res = await fetch(`/api/series`);
