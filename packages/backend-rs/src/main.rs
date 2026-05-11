@@ -11,10 +11,21 @@ use std::path::PathBuf;
 use tokio::fs;
 use tower_http::cors::CorsLayer;
 
-const SCANS_ROOT: &str = r"C:\dev\projects\bascan\berserk";
+/// Library root: contains series folders, each containing volume folders
+const LIBRARY_ROOT: &str = r"C:\dev\projects\bascan\library";
 
 /// Embedded frontend build
 static FRONTEND: Dir = include_dir!("$CARGO_MANIFEST_DIR/../frontend/build");
+
+#[derive(Serialize)]
+struct Series {
+    id: String,
+    title: String,
+    #[serde(rename = "coverUrl")]
+    cover_url: String,
+    #[serde(rename = "volumeCount")]
+    volume_count: usize,
+}
 
 #[derive(Serialize)]
 struct Volume {
@@ -40,7 +51,6 @@ fn is_image(name: &str) -> bool {
 }
 
 fn is_spread(name: &str) -> bool {
-    // Match patterns like 006-007.jpg
     let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
     stem.contains('-') && stem.split('-').all(|p| p.chars().all(|c| c.is_ascii_digit()))
 }
@@ -65,16 +75,88 @@ fn natural_sort_key(s: &str) -> Vec<u64> {
     result
 }
 
-async fn list_volumes() -> Json<Vec<Volume>> {
-    let mut volumes = Vec::new();
-    let mut entries = fs::read_dir(SCANS_ROOT).await.unwrap();
+/// Count volume directories in a series folder
+async fn count_volumes_in(path: &std::path::Path) -> usize {
+    let mut count = 0;
+    if let Ok(mut entries) = fs::read_dir(path).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+/// Get first image file in first volume of a series (for series cover)
+async fn series_cover(series_path: &std::path::Path, series_id: &str) -> String {
+    if let Ok(mut entries) = fs::read_dir(series_path).await {
+        let mut vol_dirs: Vec<String> = Vec::new();
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) {
+                vol_dirs.push(entry.file_name().to_string_lossy().to_string());
+            }
+        }
+        vol_dirs.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+        if let Some(first_vol) = vol_dirs.first() {
+            let vol_path = series_path.join(first_vol);
+            if let Ok(mut files_entries) = fs::read_dir(&vol_path).await {
+                let mut files = Vec::new();
+                while let Ok(Some(f)) = files_entries.next_entry().await {
+                    let fname = f.file_name().to_string_lossy().to_string();
+                    if is_image(&fname) { files.push(fname); }
+                }
+                files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+                if let Some(cover) = files.first() {
+                    return format!("/images/{}/{}/{}", 
+                        urlencoding::encode(series_id),
+                        urlencoding::encode(first_vol),
+                        urlencoding::encode(cover));
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+// GET /api/series — list all series
+async fn list_series() -> Json<Vec<Series>> {
+    let mut series = Vec::new();
+    let mut entries = fs::read_dir(LIBRARY_ROOT).await.unwrap();
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.starts_with("Berserk T") { continue; }
         if !entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) { continue; }
 
-        let folder = PathBuf::from(SCANS_ROOT).join(&name);
+        let path = PathBuf::from(LIBRARY_ROOT).join(&name);
+        let vol_count = count_volumes_in(&path).await;
+        let cover = series_cover(&path, &name).await;
+
+        series.push(Series {
+            title: name.clone(),
+            cover_url: cover,
+            volume_count: vol_count,
+            id: name,
+        });
+    }
+
+    series.sort_by(|a, b| natural_sort_key(&a.id).cmp(&natural_sort_key(&b.id)));
+    Json(series)
+}
+
+// GET /api/series/:series_id/volumes — list volumes in a series
+async fn list_volumes(Path(series_id): Path<String>) -> Result<Json<Vec<Volume>>, StatusCode> {
+    let series_path = PathBuf::from(LIBRARY_ROOT).join(&series_id);
+    if !series_path.is_dir() { return Err(StatusCode::NOT_FOUND); }
+
+    let mut volumes = Vec::new();
+    let mut entries = fs::read_dir(&series_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) { continue; }
+
+        let folder = series_path.join(&name);
         let mut files: Vec<String> = Vec::new();
         if let Ok(mut dir) = fs::read_dir(&folder).await {
             while let Ok(Some(f)) = dir.next_entry().await {
@@ -85,11 +167,12 @@ async fn list_volumes() -> Json<Vec<Volume>> {
         files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
 
         let cover = files.first().cloned().unwrap_or_default();
+        let encoded_series = urlencoding::encode(&series_id);
         let encoded_name = urlencoding::encode(&name);
         let encoded_cover = urlencoding::encode(&cover);
 
         volumes.push(Volume {
-            cover_url: format!("/images/{}/{}", encoded_name, encoded_cover),
+            cover_url: format!("/images/{}/{}/{}", encoded_series, encoded_name, encoded_cover),
             page_count: files.len(),
             title: name.clone(),
             id: name,
@@ -97,11 +180,12 @@ async fn list_volumes() -> Json<Vec<Volume>> {
     }
 
     volumes.sort_by(|a, b| natural_sort_key(&a.id).cmp(&natural_sort_key(&b.id)));
-    Json(volumes)
+    Ok(Json(volumes))
 }
 
-async fn list_pages(Path(id): Path<String>) -> Result<Json<Vec<Page>>, StatusCode> {
-    let folder = PathBuf::from(SCANS_ROOT).join(&id);
+// GET /api/series/:series_id/volumes/:volume_id/pages
+async fn list_pages(Path((series_id, volume_id)): Path<(String, String)>) -> Result<Json<Vec<Page>>, StatusCode> {
+    let folder = PathBuf::from(LIBRARY_ROOT).join(&series_id).join(&volume_id);
     if !folder.is_dir() { return Err(StatusCode::NOT_FOUND); }
 
     let mut files = Vec::new();
@@ -112,12 +196,13 @@ async fn list_pages(Path(id): Path<String>) -> Result<Json<Vec<Page>>, StatusCod
     }
     files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
 
-    let encoded_id = urlencoding::encode(&id);
+    let encoded_series = urlencoding::encode(&series_id);
+    let encoded_vol = urlencoding::encode(&volume_id);
     let pages: Vec<Page> = files.iter().map(|f| {
         let encoded_file = urlencoding::encode(f);
         Page {
             filename: f.clone(),
-            url: format!("/images/{}/{}", encoded_id, encoded_file),
+            url: format!("/images/{}/{}/{}", encoded_series, encoded_vol, encoded_file),
             is_spread: is_spread(f),
         }
     }).collect();
@@ -125,8 +210,9 @@ async fn list_pages(Path(id): Path<String>) -> Result<Json<Vec<Page>>, StatusCod
     Ok(Json(pages))
 }
 
-async fn serve_image(Path((volume, file)): Path<(String, String)>) -> impl IntoResponse {
-    let path = PathBuf::from(SCANS_ROOT).join(&volume).join(&file);
+// Serve images: /images/:series/:volume/:file
+async fn serve_image(Path((series, volume, file)): Path<(String, String, String)>) -> impl IntoResponse {
+    let path = PathBuf::from(LIBRARY_ROOT).join(&series).join(&volume).join(&file);
 
     match fs::read(&path).await {
         Ok(bytes) => (
@@ -145,7 +231,6 @@ async fn serve_image(Path((volume, file)): Path<(String, String)>) -> impl IntoR
 async fn serve_frontend(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     
-    // Try to serve the exact file
     if let Some(file) = FRONTEND.get_file(path) {
         let mime = match path.rsplit_once('.').map(|(_, ext)| ext) {
             Some("html") => "text/html",
@@ -164,7 +249,6 @@ async fn serve_frontend(uri: Uri) -> Response {
         ).into_response();
     }
 
-    // SPA fallback — serve index.html for any unmatched route
     if let Some(index) = FRONTEND.get_file("index.html") {
         return Html(std::str::from_utf8(index.contents()).unwrap_or("")).into_response();
     }
@@ -175,15 +259,16 @@ async fn serve_frontend(uri: Uri) -> Response {
 #[tokio::main]
 async fn main() {
     let app = Router::new()
-        .route("/api/volumes", get(list_volumes))
-        .route("/api/volumes/{id}/pages", get(list_pages))
-        .route("/images/{volume}/{file}", get(serve_image))
+        .route("/api/series", get(list_series))
+        .route("/api/series/{series_id}/volumes", get(list_volumes))
+        .route("/api/series/{series_id}/volumes/{volume_id}/pages", get(list_pages))
+        .route("/images/{series}/{volume}/{file}", get(serve_image))
         .fallback(get(serve_frontend))
         .layer(CorsLayer::permissive());
 
     let addr = "0.0.0.0:3001";
     println!("Bascan running on http://localhost:3001");
-    println!("Serving scans from: {}", SCANS_ROOT);
+    println!("Library: {}", LIBRARY_ROOT);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

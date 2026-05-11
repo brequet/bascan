@@ -1,4 +1,12 @@
-/** A volume (tome) in the library */
+/** A manga series in the library */
+export interface Series {
+  id: string;
+  title: string;
+  coverUrl: string;
+  volumeCount: number;
+}
+
+/** A volume (tome) in a series */
 export interface Volume {
   id: string;
   title: string;

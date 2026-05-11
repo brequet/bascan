@@ -1,23 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchVolumes, imageUrl } from "$lib/api";
-  import { getProgress } from "$lib/progress";
-  import type { Volume } from "@bascan/shared";
+  import { fetchSeries, imageUrl } from "$lib/api";
+  import type { Series } from "@bascan/shared";
 
-  let volumes: Volume[] = $state([]);
+  let series: Series[] = $state([]);
   let loading = $state(true);
 
   onMount(async () => {
-    volumes = await fetchVolumes();
+    series = await fetchSeries();
     loading = false;
   });
-
-  function progressLabel(vol: Volume): string {
-    const p = getProgress(vol.id);
-    if (!p) return "";
-    const pct = Math.round((p.pageIndex / vol.pageCount) * 100);
-    return `${pct}%`;
-  }
 </script>
 
 <div class="library">
@@ -30,16 +22,15 @@
     <p class="loading">Loading library...</p>
   {:else}
     <div class="grid">
-      {#each volumes as vol}
-        <a href="/read/{encodeURIComponent(vol.id)}" class="volume-card">
+      {#each series as s}
+        <a href="/series/{encodeURIComponent(s.id)}" class="volume-card">
           <div class="cover-wrapper">
-            <img src={imageUrl(vol.coverUrl)} alt={vol.title} loading="lazy" />
-            {#if progressLabel(vol)}
-              <span class="progress-badge">{progressLabel(vol)}</span>
+            {#if s.coverUrl}
+              <img src={imageUrl(s.coverUrl)} alt={s.title} loading="lazy" />
             {/if}
           </div>
-          <span class="volume-title">{vol.title}</span>
-          <span class="page-count">{vol.pageCount} pages</span>
+          <span class="volume-title">{s.title}</span>
+          <span class="page-count">{s.volumeCount} volumes</span>
         </a>
       {/each}
     </div>
@@ -107,18 +98,6 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-  }
-
-  .progress-badge {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    background: var(--accent);
-    color: white;
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 4px;
   }
 
   .volume-title {

@@ -10,12 +10,19 @@ function getAll(): Record<string, ReadingProgress> {
   }
 }
 
-export function getProgress(volumeId: string): ReadingProgress | null {
-  return getAll()[volumeId] ?? null;
+function progressKey(seriesId: string, volumeId: string): string {
+  return `${seriesId}/${volumeId}`;
 }
 
-export function saveProgress(volumeId: string, pageIndex: number): void {
+export function getProgress(seriesId: string, volumeId: string): ReadingProgress | null {
   const all = getAll();
-  all[volumeId] = { volumeId, pageIndex, timestamp: Date.now() };
+  // Try new key format first, then fall back to old format (volumeId only)
+  return all[progressKey(seriesId, volumeId)] ?? all[volumeId] ?? null;
+}
+
+export function saveProgress(seriesId: string, volumeId: string, pageIndex: number): void {
+  const all = getAll();
+  const key = progressKey(seriesId, volumeId);
+  all[key] = { volumeId, pageIndex, timestamp: Date.now() };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }

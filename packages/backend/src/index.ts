@@ -1,20 +1,18 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serveStatic } from "hono/bun";
-import { volumesRouter } from "./routes/volumes";
-import { SCANS_ROOT } from "./config";
+import { seriesRouter } from "./routes/series";
+import { LIBRARY_ROOT } from "./config";
 
 const app = new Hono();
 
 app.use("/*", cors({ origin: "http://localhost:5173" }));
 
-// API routes
-app.route("/api/volumes", volumesRouter);
+app.route("/api/series", seriesRouter);
 
-// Serve scan images directly
-app.get("/images/:volume/:file", async (c) => {
-  const { volume, file } = c.req.param();
-  const path = `${SCANS_ROOT}/${decodeURIComponent(volume)}/${decodeURIComponent(file)}`;
+// Serve scan images: /images/:series/:volume/:file
+app.get("/images/:series/:volume/:file", async (c) => {
+  const { series, volume, file } = c.req.param();
+  const path = `${LIBRARY_ROOT}/${decodeURIComponent(series)}/${decodeURIComponent(volume)}/${decodeURIComponent(file)}`;
 
   const bunFile = Bun.file(path);
   if (!(await bunFile.exists())) {
@@ -28,7 +26,7 @@ app.get("/images/:volume/:file", async (c) => {
 
 const PORT = 3001;
 console.log(`Bascan backend running on http://localhost:${PORT}`);
-console.log(`Serving scans from: ${SCANS_ROOT}`);
+console.log(`Library: ${LIBRARY_ROOT}`);
 
 export default {
   port: PORT,

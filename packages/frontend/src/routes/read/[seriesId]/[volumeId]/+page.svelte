@@ -6,6 +6,7 @@
   import { getProgress, saveProgress } from "$lib/progress";
   import type { Page, Volume } from "@bascan/shared";
 
+  let seriesId: string = $state("");
   let volumeId: string = $state("");
   let pages: Page[] = $state([]);
   let currentIndex: number = $state(0);
@@ -26,9 +27,11 @@
   let isLastPage = $derived(currentIndex === pages.length - 1);
 
   onMount(() => {
-    const id = $page.params?.id;
-    if (id) {
-      volumeId = decodeURIComponent(id);
+    const sid = $page.params?.seriesId;
+    const vid = $page.params?.volumeId;
+    if (sid && vid) {
+      seriesId = decodeURIComponent(sid);
+      volumeId = decodeURIComponent(vid);
       const urlPage = new URLSearchParams(window.location.search).get("p");
       if (urlPage) currentIndex = Math.max(0, parseInt(urlPage, 10) - 1);
       loadVolume();
@@ -37,16 +40,18 @@
 
   async function loadVolume() {
     loading = true;
-    const [pagesData, volumes] = await Promise.all([fetchPages(volumeId), fetchVolumes()]);
+    const [pagesData, volumes] = await Promise.all([
+      fetchPages(seriesId, volumeId),
+      fetchVolumes(seriesId)
+    ]);
     pages = pagesData;
 
-    // Find adjacent volumes
     const idx = volumes.findIndex((v: Volume) => v.id === volumeId);
     prevVolume = idx > 0 ? volumes[idx - 1] : null;
     nextVolume = idx < volumes.length - 1 ? volumes[idx + 1] : null;
 
     if (currentIndex === 0) {
-      const saved = getProgress(volumeId);
+      const saved = getProgress(seriesId, volumeId);
       if (saved) currentIndex = Math.min(saved.pageIndex, pages.length - 1);
     } else {
       currentIndex = Math.min(currentIndex, pages.length - 1);
@@ -56,7 +61,7 @@
   }
 
   function goToVolume(vol: Volume) {
-    goto(`/read/${encodeURIComponent(vol.id)}`);
+    goto(`/read/${encodeURIComponent(seriesId)}/${encodeURIComponent(vol.id)}`);
   }
 
   function updateUrl() {
@@ -68,7 +73,7 @@
   function goTo(index: number) {
     if (index < 0 || index >= pages.length) return;
     currentIndex = index;
-    saveProgress(volumeId, currentIndex);
+    saveProgress(seriesId, volumeId, currentIndex);
     updateUrl();
     if (mode === "scroll") scrollToPage(index);
   }
@@ -89,7 +94,6 @@
   function toggleMode() {
     mode = mode === "scroll" ? "page" : "scroll";
     if (mode === "scroll") {
-      // Wait for DOM to render scroll view, then scroll to current page
       requestAnimationFrame(() => scrollToPage(currentIndex));
     }
   }
@@ -112,10 +116,9 @@
       case "+": case "=": zoom = Math.min(zoom + 0.25, 3); break;
       case "-": zoom = Math.max(zoom - 0.25, 0.5); break;
       case "0": zoom = 1; break;
-      case "Escape": goto("/"); break;
+      case "Escape": goto(`/series/${encodeURIComponent(seriesId)}`); break;
       case "m": case "M": toggleMode(); break;
     }
-    // Don't show controls on page turns — only on mouse move
   }
 
   let showCursor = $state(true);
@@ -136,7 +139,6 @@
 
   function handleScroll() {
     if (mode !== "scroll" || !scrollContainer) return;
-    // Determine which page is in viewport center
     const centerY = scrollContainer.scrollTop + scrollContainer.clientHeight / 2;
     const images = scrollContainer.querySelectorAll<HTMLElement>(".page-img");
     for (let i = 0; i < images.length; i++) {
@@ -144,7 +146,7 @@
       if (img.offsetTop + img.offsetHeight > centerY) {
         if (i !== currentIndex) {
           currentIndex = i;
-          saveProgress(volumeId, currentIndex);
+          saveProgress(seriesId, volumeId, currentIndex);
           updateUrl();
         }
         break;
@@ -154,20 +156,22 @@
 
 </script>
 
+<svelte:head>
+  <title>{volumeId} — {seriesId} — Bascan</title>
+</svelte:head>
+
 <svelte:window onkeydown={handleKey} />
 
 <div class="reader" class:hide-cursor={!showCursor} onmousemove={handleMouseMove} role="application">
   {#if loading}
     <p class="loading-msg">Loading...</p>
   {:else}
-    <!-- Top bar -->
     <header class="topbar" class:visible={showControls}>
-      <a href="/" class="back-btn">← Library</a>
+      <a href="/series/{encodeURIComponent(seriesId)}" class="back-btn">← {seriesId}</a>
       <span class="title">{volumeId}</span>
       <span class="page-info">{currentIndex + 1} / {pages.length}</span>
     </header>
 
-    <!-- Reader content -->
     {#if mode === "scroll"}
       <div
         class="scroll-view"
@@ -192,7 +196,6 @@
       </div>
     {:else}
       <div class="page-view" style="--zoom: {zoom}">
-        <!-- Click zones for prev/next -->
         <button class="click-zone left" onclick={prev} aria-label="Previous page"></button>
         <button class="click-zone right" onclick={next} aria-label="Next page"></button>
 
@@ -218,7 +221,6 @@
       </div>
     {/if}
 
-    <!-- Bottom controls -->
     <footer class="bottombar" class:visible={showControls}>
       <div class="progress-bar">
         <div class="progress-fill" style="width: {progress}%"></div>
@@ -255,21 +257,16 @@
     overflow: hidden;
   }
 
-  .reader.hide-cursor {
-    cursor: none;
-  }
+  .reader.hide-cursor { cursor: none; }
 
   .loading-msg {
     margin: auto;
     color: var(--text-muted);
   }
 
-  /* Top bar */
   .topbar {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
+    top: 0; left: 0; right: 0;
     z-index: 100;
     display: flex;
     align-items: center;
@@ -281,27 +278,12 @@
     pointer-events: none;
   }
 
-  .topbar.visible {
-    opacity: 1;
-    pointer-events: all;
-  }
+  .topbar.visible { opacity: 1; pointer-events: all; }
 
-  .back-btn {
-    color: var(--text);
-    font-weight: 500;
-  }
+  .back-btn { color: var(--text); font-weight: 500; }
+  .title { font-size: 0.9rem; color: var(--text-muted); }
+  .page-info { font-size: 0.85rem; color: var(--text-muted); }
 
-  .title {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-  }
-
-  .page-info {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-  }
-
-  /* Scroll mode */
   .scroll-view {
     flex: 1;
     overflow-y: auto;
@@ -322,7 +304,6 @@
     width: calc(min(100vw, 1200px) * var(--zoom));
   }
 
-  /* Page mode */
   .page-view {
     flex: 1;
     display: flex;
@@ -344,8 +325,7 @@
 
   .click-zone {
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 0; bottom: 0;
     width: 35%;
     background: none;
     border: none;
@@ -356,12 +336,9 @@
   .click-zone.left { left: 0; }
   .click-zone.right { right: 0; }
 
-  /* Bottom bar */
   .bottombar {
     position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    bottom: 0; left: 0; right: 0;
     z-index: 100;
     background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
     padding: 1rem 1.5rem 0.75rem;
@@ -370,10 +347,7 @@
     pointer-events: none;
   }
 
-  .bottombar.visible {
-    opacity: 1;
-    pointer-events: all;
-  }
+  .bottombar.visible { opacity: 1; pointer-events: all; }
 
   .progress-bar {
     height: 3px;
@@ -416,7 +390,6 @@
     text-align: center;
   }
 
-  /* Chapter navigation */
   .chapter-nav-btn {
     display: block;
     margin: 2rem auto;
@@ -451,7 +424,5 @@
   .chapter-overlay-btn.next { right: 2rem; bottom: 5rem; }
   .chapter-overlay-btn.prev { left: 2rem; bottom: 5rem; }
 
-  .chapter-btn {
-    background: rgba(255,255,255,0.15) !important;
-  }
+  .chapter-btn { background: rgba(255,255,255,0.15) !important; }
 </style>
