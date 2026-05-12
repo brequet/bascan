@@ -1,9 +1,0 @@
-{
-  "name": "bascan",
-  "private": true,
-  "scripts": {
-    "dev:frontend": "pnpm --prefix packages/frontend dev",
-    "build:frontend": "pnpm --prefix packages/frontend build",
-    "check": "pnpm --prefix packages/frontend check"
-  }
-}
