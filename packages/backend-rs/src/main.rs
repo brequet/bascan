@@ -270,6 +270,9 @@ async fn main() {
         std::process::exit(1);
     });
 
+    // Strip Windows \\?\ prefix for clean display
+    let display_path = library_root.to_string_lossy().replace(r"\\?\", "");
+
     let state = AppState {
         library_root: Arc::new(library_root.clone()),
     };
@@ -285,7 +288,7 @@ async fn main() {
 
     let addr = "0.0.0.0:3001";
     println!("Bascan running on http://localhost:3001");
-    println!("Library: {}", library_root.display());
+    println!("Library: {}", display_path);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
