@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Book shape -->
+  <rect x="8" y="6" width="48" height="52" rx="4" fill="#6b8afd" opacity="0.15"/>
+  <path d="M12 10h40a2 2 0 0 1 2 2v40a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2z" stroke="#6b8afd" stroke-width="2.5" fill="none"/>
+  <!-- Spine -->
+  <line x1="20" y1="10" x2="20" y2="54" stroke="#6b8afd" stroke-width="2" opacity="0.4"/>
+  <!-- Page lines -->
+  <line x1="26" y1="18" x2="46" y2="18" stroke="#6b8afd" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+  <line x1="26" y1="24" x2="44" y2="24" stroke="#6b8afd" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="26" y1="30" x2="42" y2="30" stroke="#6b8afd" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+  <!-- Panel frames (manga style) -->
+  <rect x="26" y="36" width="10" height="12" rx="1" stroke="#6b8afd" stroke-width="1.5" fill="none" opacity="0.6"/>
+  <rect x="38" y="36" width="8" height="5" rx="1" stroke="#6b8afd" stroke-width="1.5" fill="none" opacity="0.6"/>
+  <rect x="38" y="43" width="8" height="5" rx="1" stroke="#6b8afd" stroke-width="1.5" fill="none" opacity="0.6"/>
+</svg>
