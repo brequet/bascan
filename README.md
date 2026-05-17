@@ -67,6 +67,34 @@ The library path is resolved in order:
 - **Keyboard shortcuts**: `←`/`→` navigate, `F` fullscreen, `M` toggle mode, `+`/`−`/`0` zoom, `Esc` back
 - **Dark theme** throughout
 
+## Always-on (Windows, current user)
+
+Run Bascan in the background, hidden, auto-started at logon — no terminal needed.
+
+```pwsh
+# One-time setup: register a hidden Scheduled Task as the current user
+just install-autostart
+# or with a custom library path:
+just install-autostart C:\path\to\library
+
+# Inspect task + process + logs
+just status
+just logs            # tail -f equivalent
+
+# Rebuild and restart in one go
+just update
+
+# Remove it
+just uninstall-autostart
+```
+
+Notes:
+
+- Runs as the **current user**, scope: user only. No admin/elevation needed.
+- Writes a launcher at `%LOCALAPPDATA%\Bascan\launch.cmd` and logs to `%LOCALAPPDATA%\Bascan\bascan.log`.
+- Not reachable while logged out — by design. Bascan is a personal reader, not a server.
+- `just update` kills the running process (the `.exe` is locked while running), rebuilds, then restarts the task.
+
 ## Development
 
 ```bash
